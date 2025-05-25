@@ -19,16 +19,16 @@ def calc_flops(path):
     # print funcs
     _dict_builtin_op_code_to_name = {v: k for k, v in  tflite.BuiltinOperator.__dict__.items() if type(v) == int}
     def print_header():
-        print("%-18s | %-15s | FLOPS" % ("OP_NAME", "OUTPUT SHAPE"))
+        print("%-23s | %-20s | FLOPS" % ("OP_NAME", "OUTPUT SHAPE"))
         print(f"{'-'*45}")
     def print_flops(op_code_builtin, flops, out_shape):
-        print("%-18s | %-15s | %d" % (
+        print("%-23s | %-20s | %d" % (
             _dict_builtin_op_code_to_name[op_code_builtin],
             out_shape,
             flops
         ))
     def print_none(op_code_builtin, out_shape):
-        print("%-18s | %-15s | <IGNORED>" % (_dict_builtin_op_code_to_name[op_code_builtin], out_shape))
+        print("%-23s | %-20s | <IGNORED>" % (_dict_builtin_op_code_to_name[op_code_builtin], out_shape))
     def print_footer(total_flops):
         print(f"{'-'*45}")
         print("Total: %.1f M FLOPS" % (total_flops / 1.0e6))
