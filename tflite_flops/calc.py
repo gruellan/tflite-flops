@@ -19,14 +19,18 @@ def calc_flops(path):
     # print funcs
     _dict_builtin_op_code_to_name = {v: k for k, v in  tflite.BuiltinOperator.__dict__.items() if type(v) == int}
     def print_header():
-        print("%-18s | FLOPS" % ("OP_NAME"))
-        print("------------------------------")
-    def print_flops(op_code_builtin, flops):
-        print("%-18s | %.1d" % (_dict_builtin_op_code_to_name[op_code_builtin], flops))
-    def print_none(op_code_builtin):
-        print("%-18s | <IGNORED>" % (_dict_builtin_op_code_to_name[op_code_builtin]))
+        print("%-18s | %-15s | FLOPS" % ("OP_NAME", "OUTPUT SHAPE"))
+        print(f"{'-'*45}")
+    def print_flops(op_code_builtin, flops, out_shape):
+        print("%-18s | %-15s | %d" % (
+            _dict_builtin_op_code_to_name[op_code_builtin],
+            out_shape,
+            flops
+        ))
+    def print_none(op_code_builtin, out_shape):
+        print("%-18s | %-15s | <IGNORED>" % (_dict_builtin_op_code_to_name[op_code_builtin], out_shape))
     def print_footer(total_flops):
-        print("------------------------------")
+        print(f"{'-'*45}")
         print("Total: %.1f M FLOPS" % (total_flops / 1.0e6))
 
     total_flops = 0.0
@@ -45,7 +49,7 @@ def calc_flops(path):
             _, H_out, W_out, _ = out_shape
 
             flops = 2 * H_out * W_out * C_out * K_h * K_w * C_in
-            print_flops(op_code_builtin, flops)
+            print_flops(op_code_builtin, flops, out_shape)
 
         elif op_code_builtin == tflite.BuiltinOperator.DEPTHWISE_CONV_2D:
             filter_shape = graph.Tensors( op.Inputs(1) ).ShapeAsNumpy()
@@ -55,35 +59,37 @@ def calc_flops(path):
             _, H_out, W_out, _ = out_shape
 
             flops = 2 * H_out * W_out * C_in * K_h * K_w
-            print_flops(op_code_builtin, flops)
+            print_flops(op_code_builtin, flops, out_shape)
 
         elif op_code_builtin in [tflite.BuiltinOperator.MAX_POOL_2D, tflite.BuiltinOperator.AVERAGE_POOL_2D]:
-                out_shape = graph.Tensors(op.Outputs(0)).ShapeAsNumpy()
-                _, H_out, W_out, C_out = out_shape
+            out_shape = graph.Tensors(op.Outputs(0)).ShapeAsNumpy()
+            _, H_out, W_out, C_out = out_shape
 
-                opt = tflite.Pool2DOptions()
-                opt.Init(op.BuiltinOptions().Bytes, op.BuiltinOptions().Pos)
-                K_h = opt.FilterHeight()
-                K_w = opt.FilterWidth()
-                if op_code_builtin == tflite.BuiltinOperator.MAX_POOL_2D:
-                    pool_ops = K_h * K_w - 1  # comparison
-                else:
-                    pool_ops = K_h * K_w  # add + average
+            opt = tflite.Pool2DOptions()
+            opt.Init(op.BuiltinOptions().Bytes, op.BuiltinOptions().Pos)
+            K_h = opt.FilterHeight()
+            K_w = opt.FilterWidth()
+            if op_code_builtin == tflite.BuiltinOperator.MAX_POOL_2D:
+                pool_ops = K_h * K_w - 1  # comparison
+            else:
+                pool_ops = K_h * K_w  # add + average
 
-                flops = pool_ops * H_out * W_out * C_out
-                print_flops(op_code_builtin, flops)
+            flops = pool_ops * H_out * W_out * C_out
+            print_flops(op_code_builtin, flops, out_shape)
 
         elif op_code_builtin == tflite.BuiltinOperator.FULLY_CONNECTED:
             in_shape = graph.Tensors(op.Inputs(0)).ShapeAsNumpy()
             weight_shape = graph.Tensors(op.Inputs(1)).ShapeAsNumpy()
+            out_shape = graph.Tensors(op.Outputs(1)).ShapeAsNumpy()
             batch_size, _ = in_shape
             o, i = weight_shape
 
             flops = 2 * batch_size * i * o
-            print_flops(op_code_builtin, flops)
+            print_flops(op_code_builtin, flops, out_shape)
 
         else:
-            print_none(op_code_builtin)
+            out_shape = graph.Tensors(op.Outputs(0)).ShapeAsNumpy()
+            print_none(op_code_builtin, out_shape)
 
         total_flops += flops
     print_footer(total_flops)
