@@ -16,18 +16,13 @@ def calc_flops(path):
 
     graph = model.Subgraphs(0)
 
-    # help(tflite.BuiltinOperator)
-    # ABS = 101
-    # CONV_2D = 3
-    # CUMSUM = 128
-
     # print funcs
     _dict_builtin_op_code_to_name = {v: k for k, v in  tflite.BuiltinOperator.__dict__.items() if type(v) == int}
     def print_header():
-        print("%-18s | M FLOPS" % ("OP_NAME"))
+        print("%-18s | FLOPS" % ("OP_NAME"))
         print("------------------------------")
     def print_flops(op_code_builtin, flops):
-        print("%-18s | %.1f" % (_dict_builtin_op_code_to_name[op_code_builtin], flops / 1.0e6))
+        print("%-18s | %.1d" % (_dict_builtin_op_code_to_name[op_code_builtin], flops))
     def print_none(op_code_builtin):
         print("%-18s | <IGNORED>" % (_dict_builtin_op_code_to_name[op_code_builtin]))
     def print_footer(total_flops):
@@ -41,32 +36,50 @@ def calc_flops(path):
         op_code = model.OperatorCodes(op.OpcodeIndex())
         op_code_builtin = op_code.BuiltinCode()
 
-        op_opt = op.BuiltinOptions()
-
         flops = 0.0
         if op_code_builtin == tflite.BuiltinOperator.CONV_2D:
-            # input shapes: in, weight, bias
-            in_shape = graph.Tensors( op.Inputs(0) ).ShapeAsNumpy()
-            filter_shape = graph.Tensors( op.Inputs(1) ).ShapeAsNumpy()
-            bias_shape = graph.Tensors( op.Inputs(2) ).ShapeAsNumpy()
-            # output shape
-            out_shape = graph.Tensors( op.Outputs(0) ).ShapeAsNumpy()
-            # ops options
-            opt = tflite.Conv2DOptions()
-            opt.Init(op_opt.Bytes, op_opt.Pos)
-            # opt.StrideH()
+            filter_shape = graph.Tensors(op.Inputs(1)).ShapeAsNumpy()
+            C_out, K_h, K_w, C_in = filter_shape
 
-            # flops. 2x means mul(1)+add(1). 2x not needed if you calculate MACCs
-            # refer to https://github.com/AlexeyAB/darknet/src/convolutional_layer.c `l.blopfs =`
-            flops = 2 * out_shape[1] * out_shape[2] * filter_shape[0] * filter_shape[1] * filter_shape[2] * filter_shape[3]
+            out_shape = graph.Tensors(op.Outputs(0)).ShapeAsNumpy()
+            _, H_out, W_out, _ = out_shape
+
+            flops = 2 * H_out * W_out * C_out * K_h * K_w * C_in
             print_flops(op_code_builtin, flops)
 
         elif op_code_builtin == tflite.BuiltinOperator.DEPTHWISE_CONV_2D:
-            in_shape = graph.Tensors( op.Inputs(0) ).ShapeAsNumpy()
             filter_shape = graph.Tensors( op.Inputs(1) ).ShapeAsNumpy()
+            _, K_h, K_w, C_in = filter_shape
+
             out_shape = graph.Tensors( op.Outputs(0) ).ShapeAsNumpy()
-            # flops
-            flops = 2 * out_shape[1] * out_shape[2] * filter_shape[0] * filter_shape[1] * filter_shape[2] * filter_shape[3]
+            _, H_out, W_out, _ = out_shape
+
+            flops = 2 * H_out * W_out * C_in * K_h * K_w
+            print_flops(op_code_builtin, flops)
+
+        elif op_code_builtin in [tflite.BuiltinOperator.MAX_POOL_2D, tflite.BuiltinOperator.AVERAGE_POOL_2D]:
+                out_shape = graph.Tensors(op.Outputs(0)).ShapeAsNumpy()
+                _, H_out, W_out, C_out = out_shape
+
+                opt = tflite.Pool2DOptions()
+                opt.Init(op.BuiltinOptions().Bytes, op.BuiltinOptions().Pos)
+                K_h = opt.FilterHeight()
+                K_w = opt.FilterWidth()
+                if op_code_builtin == tflite.BuiltinOperator.MAX_POOL_2D:
+                    pool_ops = K_h * K_w - 1  # comparison
+                else:
+                    pool_ops = K_h * K_w  # add + average
+
+                flops = pool_ops * H_out * W_out * C_out
+                print_flops(op_code_builtin, flops)
+
+        elif op_code_builtin == tflite.BuiltinOperator.FULLY_CONNECTED:
+            in_shape = graph.Tensors(op.Inputs(0)).ShapeAsNumpy()
+            weight_shape = graph.Tensors(op.Inputs(1)).ShapeAsNumpy()
+            batch_size, _ = in_shape
+            o, i = weight_shape
+
+            flops = 2 * batch_size * i * o
             print_flops(op_code_builtin, flops)
 
         else:
@@ -79,14 +92,3 @@ if __name__ == "__main__":
   path = sys.argv[1]
   calc_flops(path)
 
-##########################################################################
-# darknet
-# maxpool_layer.c
-# 	l.bflops = (l.size*l.size*l.c * l.out_h*l.out_w) / 1000000000.;
-# convolutional_layer.c
-#     l.bflops = (2.0 * l.nweights * l.out_h*l.out_w) / 1000000000.;
-# shortcut_layer.c
-#     l.bflops = l.out_w * l.out_h * l.out_c * l.n / 1000000000.;
-
-# netron (not refered)
-# https://github.com/lutzroeder/netron/tree/main/source
